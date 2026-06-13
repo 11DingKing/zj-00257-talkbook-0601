@@ -1,11 +1,12 @@
 const express = require("express");
-const { format } = require("date-fns");
+const { format, addDays, parseISO, startOfDay, isBefore } = require("date-fns");
 const {
   state,
   TALK_REASONS,
   PROMISE_STATUS,
   ESCALATION_TYPES,
   autoCheckOverdue,
+  getFirstTimePassRate,
   uuidv4,
 } = require("./store");
 
@@ -133,7 +134,17 @@ router.get("/vendors/:id/history", (req, res) => {
     .filter((t) => t.vendorId === req.params.id)
     .sort((a, b) => new Date(b.talkTime) - new Date(a.talkTime))
     .map((talk) => {
-      const talkPromises = state.promises.filter((p) => p.talkId === talk.id);
+      const talkPromises = state.promises.filter((p) => p.talkId === talk.id).map((p) => ({
+        ...p,
+        evidenceCount: state.evidenceSubmissions.filter((e) => e.promiseId === p.id).length,
+        verificationCount: state.verificationRecords.filter((v) => v.promiseId === p.id).length,
+        latestVerification: (() => {
+          const records = state.verificationRecords
+            .filter((v) => v.promiseId === p.id)
+            .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+          return records.length > 0 ? records[0] : null;
+        })(),
+      }));
       const talkEscalations = state.escalations.filter(
         (e) => e.talkId === talk.id,
       );
@@ -143,6 +154,7 @@ router.get("/vendors/:id/history", (req, res) => {
       const overdue = talkPromises.filter(
         (p) => p.status === "逾期未完成",
       ).length;
+      const pendingVerify = talkPromises.filter((p) => p.status === "待核验").length;
       return {
         ...talk,
         promises: talkPromises,
@@ -151,6 +163,7 @@ router.get("/vendors/:id/history", (req, res) => {
           totalPromises: talkPromises.length,
           completedOnTime,
           overdue,
+          pendingVerify,
           inProgress: talkPromises.filter((p) => p.status === "整改中").length,
           pending: talkPromises.filter((p) => p.status === "待整改").length,
         },
@@ -165,6 +178,7 @@ router.get("/vendors/:id/history", (req, res) => {
   );
   const totalPromises = allPromises.length;
   const onTimeCount = allPromises.filter((p) => p.status === "按期完成").length;
+  const ftp = getFirstTimePassRate(allPromises);
 
   res.json({
     code: 0,
@@ -177,8 +191,11 @@ router.get("/vendors/:id/history", (req, res) => {
           totalPromises > 0
             ? Number(((onTimeCount / totalPromises) * 100).toFixed(2))
             : 0,
+        firstTimePassRate: ftp.rate,
+        firstTimePassDetail: ftp,
         escalationCount: allEscalations.length,
         pendingEscalationCount: allEscalations.filter((e) => !e.handled).length,
+        pendingVerificationCount: allPromises.filter((p) => p.status === "待核验").length,
       },
       talks,
     },
@@ -205,6 +222,7 @@ router.get("/talks", (req, res) => {
       promiseCount: talkPromises.length,
       overduePromiseCount: talkPromises.filter((p) => p.status === "逾期未完成")
         .length,
+      pendingVerifyCount: talkPromises.filter((p) => p.status === "待核验").length,
     };
   });
 
@@ -217,7 +235,13 @@ router.get("/talks/:id", (req, res) => {
     return res.status(404).json({ code: 1, message: "约谈记录不存在" });
   }
   const vendor = state.vendors.find((v) => v.id === talk.vendorId);
-  const talkPromises = state.promises.filter((p) => p.talkId === talk.id);
+  const talkPromises = state.promises.filter((p) => p.talkId === talk.id).map((p) => ({
+    ...p,
+    evidenceSubmissions: state.evidenceSubmissions.filter((e) => e.promiseId === p.id)
+      .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)),
+    verificationRecords: state.verificationRecords.filter((v) => v.promiseId === p.id)
+      .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)),
+  }));
   const talkEscalations = state.escalations.filter((e) => e.talkId === talk.id);
   res.json({
     code: 0,
@@ -316,7 +340,7 @@ router.get("/promises", (req, res) => {
   if (talkId) result = result.filter((p) => p.talkId === talkId);
   if (status) result = result.filter((p) => p.status === status);
   result.sort((a, b) => {
-    const order = { 待整改: 0, 整改中: 1, 逾期未完成: 2, 按期完成: 3 };
+    const order = { 待整改: 0, 整改中: 1, 待核验: 2, 逾期未完成: 3, 按期完成: 4 };
     return (order[a.status] || 0) - (order[b.status] || 0);
   });
 
@@ -324,6 +348,9 @@ router.get("/promises", (req, res) => {
     const vendor = state.vendors.find((v) => v.id === p.vendorId);
     const talk = state.talks.find((t) => t.id === p.talkId);
     const escalation = state.escalations.find((e) => e.promiseId === p.id);
+    const evidenceList = state.evidenceSubmissions.filter((e) => e.promiseId === p.id);
+    const verificationList = state.verificationRecords.filter((v) => v.promiseId === p.id);
+    const latestVerification = verificationList.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))[0] || null;
     return {
       ...p,
       vendorName: vendor ? vendor.name : "",
@@ -331,10 +358,230 @@ router.get("/promises", (req, res) => {
       talkTime: talk ? talk.talkTime : "",
       hasEscalation: !!escalation,
       escalationType: escalation ? escalation.type : null,
+      evidenceCount: evidenceList.length,
+      verificationCount: verificationList.length,
+      latestVerificationResult: latestVerification ? latestVerification.result : null,
+      latestVerificationRemark: latestVerification ? latestVerification.remark : null,
     };
   });
 
   res.json({ code: 0, data, total: data.length });
+});
+
+router.get("/promises/:id", (req, res) => {
+  const promise = state.promises.find((p) => p.id === req.params.id);
+  if (!promise) {
+    return res.status(404).json({ code: 1, message: "承诺记录不存在" });
+  }
+  const vendor = state.vendors.find((v) => v.id === promise.vendorId);
+  const talk = state.talks.find((t) => t.id === promise.talkId);
+  const evidenceSubmissions = state.evidenceSubmissions
+    .filter((e) => e.promiseId === promise.id)
+    .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+  const verificationRecords = state.verificationRecords
+    .filter((v) => v.promiseId === promise.id)
+    .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+  const escalation = state.escalations.find((e) => e.promiseId === promise.id);
+
+  const submissionWithVerification = evidenceSubmissions.map((sub) => ({
+    ...sub,
+    verification: verificationRecords.find((v) => v.evidenceSubmissionId === sub.id) || null,
+  }));
+
+  res.json({
+    code: 0,
+    data: {
+      ...promise,
+      vendorName: vendor ? vendor.name : "",
+      vendorIndustry: vendor ? vendor.industry : "",
+      talkReason: talk ? talk.reason : "",
+      talkTime: talk ? talk.talkTime : "",
+      talkRemark: talk ? talk.remark : "",
+      escalation: escalation || null,
+      evidenceSubmissions: submissionWithVerification,
+      verificationRecords,
+      timeline: buildPromiseTimeline(promise, evidenceSubmissions, verificationRecords, escalation),
+    },
+  });
+});
+
+function buildPromiseTimeline(promise, evidences, verifications, escalation) {
+  const events = [];
+  events.push({
+    type: "create",
+    time: promise.createdAt,
+    title: "承诺创建",
+    content: `约谈登记，承诺内容：${promise.content}，完成期限：${promise.deadline}`,
+  });
+  evidences
+    .slice()
+    .sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt))
+    .forEach((e) => {
+      events.push({
+        type: "evidence",
+        time: e.submitTime,
+        title: "提交佐证材料",
+        content: e.description,
+        materials: e.materials,
+        submitter: e.submitter,
+      });
+    });
+  verifications
+    .slice()
+    .sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt))
+    .forEach((v) => {
+      events.push({
+        type: v.result === "通过" ? "verify-pass" : "verify-reject",
+        time: v.verifyTime,
+        title: v.result === "通过" ? "核验通过" : "核验不通过",
+        content: v.remark,
+        verifier: v.verifier,
+      });
+    });
+  if (escalation) {
+    events.push({
+      type: "escalation",
+      time: escalation.triggeredAt,
+      title: `升级处置：${escalation.type}`,
+      content: escalation.remark,
+    });
+  }
+  if (promise.actualCompletionDate) {
+    events.push({
+      type: "complete",
+      time: promise.actualCompletionDate + " 00:00:00",
+      title: "承诺按期完成",
+      content: `实际完成日期：${promise.actualCompletionDate}`,
+    });
+  }
+  return events.sort((a, b) => new Date(a.time) - new Date(b.time));
+}
+
+router.post("/promises/:id/evidence", (req, res) => {
+  const promise = state.promises.find((p) => p.id === req.params.id);
+  if (!promise) {
+    return res.status(404).json({ code: 1, message: "承诺记录不存在" });
+  }
+
+  const { submitter, description, materials } = req.body;
+
+  if (!submitter || !description) {
+    return res.status(400).json({
+      code: 1,
+      message: "参数不完整：submitter（提交人）、description（整改说明）必填",
+    });
+  }
+
+  if (promise.status === "按期完成") {
+    return res.status(400).json({
+      code: 1,
+      message: "该承诺已按期完成，无需再提交佐证材料",
+    });
+  }
+
+  const submission = {
+    id: uuidv4(),
+    promiseId: promise.id,
+    vendorId: promise.vendorId,
+    submitter,
+    submitTime: format(new Date(), "yyyy-MM-dd HH:mm:ss"),
+    description,
+    materials: Array.isArray(materials) ? materials : [],
+    createdAt: format(new Date(), "yyyy-MM-dd HH:mm:ss"),
+  };
+  state.evidenceSubmissions.push(submission);
+
+  if (promise.status === "待整改" || promise.status === "整改中") {
+    promise.status = "待核验";
+  } else if (promise.status === "逾期未完成") {
+    promise.status = "待核验";
+  }
+
+  autoCheckOverdue();
+
+  res.status(201).json({
+    code: 0,
+    data: {
+      submission,
+      promise,
+    },
+  });
+});
+
+router.post("/promises/:id/verify", (req, res) => {
+  const promise = state.promises.find((p) => p.id === req.params.id);
+  if (!promise) {
+    return res.status(404).json({ code: 1, message: "承诺记录不存在" });
+  }
+
+  const { result, verifier, remark, evidenceSubmissionId } = req.body;
+
+  if (!result || !verifier) {
+    return res.status(400).json({
+      code: 1,
+      message: "参数不完整：result（通过/不通过）、verifier（核验人）必填",
+    });
+  }
+
+  if (result !== "通过" && result !== "不通过") {
+    return res.status(400).json({
+      code: 1,
+      message: 'result 只能是 "通过" 或 "不通过"',
+    });
+  }
+
+  if (promise.status !== "待核验") {
+    return res.status(400).json({
+      code: 1,
+      message: `当前承诺状态为"${promise.status}"，只有"待核验"状态才能执行核验操作`,
+    });
+  }
+
+  let submissionId = evidenceSubmissionId;
+  if (!submissionId) {
+    const latest = state.evidenceSubmissions
+      .filter((e) => e.promiseId === promise.id)
+      .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))[0];
+    if (latest) submissionId = latest.id;
+  }
+
+  const verification = {
+    id: uuidv4(),
+    promiseId: promise.id,
+    evidenceSubmissionId: submissionId || null,
+    result,
+    verifier,
+    verifyTime: format(new Date(), "yyyy-MM-dd HH:mm:ss"),
+    remark: remark || (result === "通过" ? "核验通过，整改符合要求" : "核验不通过"),
+    createdAt: format(new Date(), "yyyy-MM-dd HH:mm:ss"),
+  };
+  state.verificationRecords.push(verification);
+
+  if (result === "通过") {
+    const now = new Date();
+    const deadlineDate = parseISO(promise.deadline);
+    const todayStart = startOfDay(now);
+    const deadlineStart = startOfDay(deadlineDate);
+
+    if (promise.status === "待核验" && (isBefore(deadlineStart, todayStart) || isNaN(deadlineDate.getTime()))) {
+    } else {
+      promise.status = "按期完成";
+      promise.actualCompletionDate = format(now, "yyyy-MM-dd");
+    }
+  } else {
+    promise.status = "整改中";
+    promise.actualCompletionDate = null;
+  }
+
+  autoCheckOverdue();
+
+  res.json({
+    code: 0,
+    data: {
+      verification,
+      promise,
+    },
+  });
 });
 
 router.put("/promises/:id/status", (req, res) => {
@@ -351,10 +598,11 @@ router.put("/promises/:id/status", (req, res) => {
   }
 
   const validTransitions = {
-    待整改: ["整改中", "按期完成", "逾期未完成"],
-    整改中: ["按期完成", "逾期未完成", "待整改"],
+    待整改: ["整改中", "待核验", "按期完成", "逾期未完成"],
+    整改中: ["待核验", "按期完成", "逾期未完成", "待整改"],
+    待核验: ["整改中", "按期完成", "逾期未完成"],
     按期完成: [],
-    逾期未完成: ["整改中", "按期完成"],
+    逾期未完成: ["整改中", "待核验", "按期完成"],
   };
 
   if (!validTransitions[promise.status].includes(status)) {
@@ -449,6 +697,7 @@ router.get("/stats/by-vendor", (req, res) => {
       const vendorEscalations = state.escalations.filter(
         (e) => e.vendorId === vendor.id,
       );
+      const ftp = getFirstTimePassRate(vendorPromises);
 
       const talkCount = vendorTalks.length;
       const totalPromises = vendorPromises.length;
@@ -457,6 +706,9 @@ router.get("/stats/by-vendor", (req, res) => {
       ).length;
       const overdueCount = vendorPromises.filter(
         (p) => p.status === "逾期未完成",
+      ).length;
+      const pendingVerifyCount = vendorPromises.filter(
+        (p) => p.status === "待核验",
       ).length;
 
       const reasonStats = {};
@@ -472,10 +724,13 @@ router.get("/stats/by-vendor", (req, res) => {
         totalPromises,
         onTimeCount,
         overdueCount,
+        pendingVerifyCount,
         onTimeCompletionRate:
           totalPromises > 0
             ? Number(((onTimeCount / totalPromises) * 100).toFixed(2))
             : 0,
+        firstTimePassRate: ftp.rate,
+        firstTimePassDetail: ftp,
         escalationCount: vendorEscalations.length,
         reTalkCount: vendorEscalations.filter((e) => e.type === "再次约谈")
           .length,
@@ -494,6 +749,7 @@ router.get("/stats/by-vendor", (req, res) => {
     })
     .sort((a, b) => b.talkCount - a.talkCount);
 
+  const overallFtp = getFirstTimePassRate();
   res.json({
     code: 0,
     data,
@@ -511,7 +767,10 @@ router.get("/stats/by-vendor", (req, res) => {
               ).toFixed(2),
             )
           : 0,
+      overallFirstTimePassRate: overallFtp.rate,
+      overallFirstTimePassDetail: overallFtp,
       totalEscalations: state.escalations.length,
+      totalPendingVerification: state.promises.filter((p) => p.status === "待核验").length,
     },
   });
 });
@@ -528,12 +787,16 @@ router.get("/stats/by-reason", (req, res) => {
       const talk = state.talks.find((t) => t.id === e.talkId);
       return talk && talk.reason === reason;
     });
+    const ftp = getFirstTimePassRate(promisesByReason);
 
     const onTimeCount = promisesByReason.filter(
       (p) => p.status === "按期完成",
     ).length;
     const overdueCount = promisesByReason.filter(
       (p) => p.status === "逾期未完成",
+    ).length;
+    const pendingVerifyCount = promisesByReason.filter(
+      (p) => p.status === "待核验",
     ).length;
 
     return {
@@ -543,10 +806,13 @@ router.get("/stats/by-reason", (req, res) => {
       totalPromises: promisesByReason.length,
       onTimeCount,
       overdueCount,
+      pendingVerifyCount,
       onTimeCompletionRate:
         promisesByReason.length > 0
           ? Number(((onTimeCount / promisesByReason.length) * 100).toFixed(2))
           : 0,
+      firstTimePassRate: ftp.rate,
+      firstTimePassDetail: ftp,
       escalationCount: escalationsByReason.length,
       reTalkCount: escalationsByReason.filter((e) => e.type === "再次约谈")
         .length,
@@ -555,6 +821,7 @@ router.get("/stats/by-reason", (req, res) => {
     };
   });
 
+  const overallFtp = getFirstTimePassRate();
   res.json({
     code: 0,
     data,
@@ -571,6 +838,9 @@ router.get("/stats/by-reason", (req, res) => {
               ).toFixed(2),
             )
           : 0,
+      overallFirstTimePassRate: overallFtp.rate,
+      overallFirstTimePassDetail: overallFtp,
+      totalPendingVerification: state.promises.filter((p) => p.status === "待核验").length,
     },
   });
 });
@@ -621,9 +891,15 @@ router.get("/stats/overview", (req, res) => {
   const last30Escalations = state.escalations.filter(
     (e) => new Date(e.triggeredAt) >= last30Days,
   ).length;
+  const last30Verifications = state.verificationRecords.filter(
+    (v) => new Date(v.createdAt) >= last30Days,
+  ).length;
+  const last30Pass = state.verificationRecords.filter(
+    (v) => new Date(v.createdAt) >= last30Days && v.result === "通过",
+  ).length;
 
   const approachingDeadline = state.promises
-    .filter((p) => p.status === "待整改" || p.status === "整改中")
+    .filter((p) => p.status === "待整改" || p.status === "整改中" || p.status === "待核验")
     .filter((p) => {
       const deadline = new Date(p.deadline);
       const diffDays = Math.ceil((deadline - today) / (1000 * 60 * 60 * 24));
@@ -633,6 +909,7 @@ router.get("/stats/overview", (req, res) => {
       const vendor = state.vendors.find((v) => v.id === p.vendorId);
       const deadline = new Date(p.deadline);
       const daysLeft = Math.ceil((deadline - today) / (1000 * 60 * 60 * 24));
+      const evidenceCount = state.evidenceSubmissions.filter((e) => e.promiseId === p.id).length;
       return {
         id: p.id,
         content: p.content,
@@ -641,9 +918,12 @@ router.get("/stats/overview", (req, res) => {
         status: p.status,
         vendorName: vendor ? vendor.name : "",
         vendorId: p.vendorId,
+        evidenceCount,
       };
     })
     .sort((a, b) => a.daysLeft - b.daysLeft);
+
+  const ftp = getFirstTimePassRate();
 
   res.json({
     code: 0,
@@ -659,6 +939,11 @@ router.get("/stats/overview", (req, res) => {
       recentActivity: {
         last30DaysTalks: last30Talks,
         last30DaysEscalations: last30Escalations,
+        last30DaysVerifications: last30Verifications,
+        last30DaysVerificationPassRate:
+          last30Verifications > 0
+            ? Number(((last30Pass / last30Verifications) * 100).toFixed(2))
+            : 0,
       },
       approachingDeadline,
       overallOnTimeRate:
@@ -671,6 +956,11 @@ router.get("/stats/overview", (req, res) => {
               ).toFixed(2),
             )
           : 0,
+      firstTimePassRate: ftp.rate,
+      firstTimePassDetail: ftp,
+      totalEvidenceSubmissions: state.evidenceSubmissions.length,
+      totalVerifications: state.verificationRecords.length,
+      pendingVerificationCount: statusBreakdown["待核验"] || 0,
     },
   });
 });

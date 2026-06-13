@@ -10,7 +10,7 @@ const {
 } = require("date-fns");
 
 const TALK_REASONS = ["弹窗诱导", "强制跳转", "整改不到位"];
-const PROMISE_STATUS = ["待整改", "整改中", "按期完成", "逾期未完成"];
+const PROMISE_STATUS = ["待整改", "整改中", "待核验", "按期完成", "逾期未完成"];
 const ESCALATION_TYPES = ["再次约谈", "通报批评"];
 
 const state = {
@@ -18,6 +18,8 @@ const state = {
   talks: [],
   promises: [],
   escalations: [],
+  evidenceSubmissions: [],
+  verificationRecords: [],
 };
 
 function initSampleData() {
@@ -76,38 +78,43 @@ function initSampleData() {
   };
   state.talks.push(talk1v1);
 
-  state.promises.push(
-    {
-      id: uuidv4(),
-      talkId: talk1v1.id,
-      vendorId: vendor1.id,
-      content: "3日内移除所有诱导性弹窗广告",
-      deadline: format(addDays(today, -117), "yyyy-MM-dd"),
-      status: "按期完成",
-      actualCompletionDate: format(addDays(today, -118), "yyyy-MM-dd"),
-      createdAt: format(addDays(today, -120), "yyyy-MM-dd HH:mm:ss"),
-    },
-    {
-      id: uuidv4(),
-      talkId: talk1v1.id,
-      vendorId: vendor1.id,
-      content: "建立弹窗内容审核机制",
-      deadline: format(addDays(today, -110), "yyyy-MM-dd"),
-      status: "按期完成",
-      actualCompletionDate: format(addDays(today, -112), "yyyy-MM-dd"),
-      createdAt: format(addDays(today, -120), "yyyy-MM-dd HH:mm:ss"),
-    },
-    {
-      id: uuidv4(),
-      talkId: talk1v1.id,
-      vendorId: vendor1.id,
-      content: "对全体运营人员进行合规培训",
-      deadline: format(addDays(today, -105), "yyyy-MM-dd"),
-      status: "按期完成",
-      actualCompletionDate: format(addDays(today, -106), "yyyy-MM-dd"),
-      createdAt: format(addDays(today, -120), "yyyy-MM-dd HH:mm:ss"),
-    },
-  );
+  const p1_t1v1 = {
+    id: uuidv4(),
+    talkId: talk1v1.id,
+    vendorId: vendor1.id,
+    content: "3日内移除所有诱导性弹窗广告",
+    deadline: format(addDays(today, -117), "yyyy-MM-dd"),
+    status: "按期完成",
+    actualCompletionDate: format(addDays(today, -118), "yyyy-MM-dd"),
+    createdAt: format(addDays(today, -120), "yyyy-MM-dd HH:mm:ss"),
+  };
+  const p2_t1v1 = {
+    id: uuidv4(),
+    talkId: talk1v1.id,
+    vendorId: vendor1.id,
+    content: "建立弹窗内容审核机制",
+    deadline: format(addDays(today, -110), "yyyy-MM-dd"),
+    status: "按期完成",
+    actualCompletionDate: format(addDays(today, -112), "yyyy-MM-dd"),
+    createdAt: format(addDays(today, -120), "yyyy-MM-dd HH:mm:ss"),
+  };
+  const p3_t1v1 = {
+    id: uuidv4(),
+    talkId: talk1v1.id,
+    vendorId: vendor1.id,
+    content: "对全体运营人员进行合规培训",
+    deadline: format(addDays(today, -105), "yyyy-MM-dd"),
+    status: "按期完成",
+    actualCompletionDate: format(addDays(today, -106), "yyyy-MM-dd"),
+    createdAt: format(addDays(today, -120), "yyyy-MM-dd HH:mm:ss"),
+  };
+  state.promises.push(p1_t1v1, p2_t1v1, p3_t1v1);
+
+  addEvidenceAndVerification(p1_t1v1, addDays(today, -119), addDays(today, -118), true, "一次性通过");
+  addEvidenceAndVerification(p2_t1v1, addDays(today, -113), addDays(today, -112), false, "初次缺少审核流程图，补充后通过", [
+    { submissionDate: addDays(today, -115), rejectDate: addDays(today, -114), rejectReason: "缺少弹窗审核流程图文档，审核标准描述不清晰" },
+  ]);
+  addEvidenceAndVerification(p3_t1v1, addDays(today, -107), addDays(today, -106), true, "培训材料和签到记录齐全");
 
   const talk2v1 = {
     id: uuidv4(),
@@ -120,45 +127,47 @@ function initSampleData() {
   };
   state.talks.push(talk2v1);
 
-  state.promises.push(
-    {
-      id: uuidv4(),
-      talkId: talk2v1.id,
-      vendorId: vendor1.id,
-      content: "立即下线强制跳转功能",
-      deadline: format(addDays(today, -58), "yyyy-MM-dd"),
-      status: "按期完成",
-      actualCompletionDate: format(addDays(today, -59), "yyyy-MM-dd"),
-      createdAt: format(addDays(today, -60), "yyyy-MM-dd HH:mm:ss"),
-    },
-    {
-      id: uuidv4(),
-      talkId: talk2v1.id,
-      vendorId: vendor1.id,
-      content: "开展全量代码自查，清理隐藏跳转逻辑",
-      deadline: format(addDays(today, -50), "yyyy-MM-dd"),
-      status: "逾期未完成",
-      actualCompletionDate: null,
-      createdAt: format(addDays(today, -60), "yyyy-MM-dd HH:mm:ss"),
-    },
-    {
-      id: uuidv4(),
-      talkId: talk2v1.id,
-      vendorId: vendor1.id,
-      content: "提交整改报告并附技术方案",
-      deadline: format(addDays(today, -55), "yyyy-MM-dd"),
-      status: "按期完成",
-      actualCompletionDate: format(addDays(today, -56), "yyyy-MM-dd"),
-      createdAt: format(addDays(today, -60), "yyyy-MM-dd HH:mm:ss"),
-    },
-  );
+  const p1_t2v1 = {
+    id: uuidv4(),
+    talkId: talk2v1.id,
+    vendorId: vendor1.id,
+    content: "立即下线强制跳转功能",
+    deadline: format(addDays(today, -58), "yyyy-MM-dd"),
+    status: "按期完成",
+    actualCompletionDate: format(addDays(today, -59), "yyyy-MM-dd"),
+    createdAt: format(addDays(today, -60), "yyyy-MM-dd HH:mm:ss"),
+  };
+  const p2_t2v1 = {
+    id: uuidv4(),
+    talkId: talk2v1.id,
+    vendorId: vendor1.id,
+    content: "开展全量代码自查，清理隐藏跳转逻辑",
+    deadline: format(addDays(today, -50), "yyyy-MM-dd"),
+    status: "逾期未完成",
+    actualCompletionDate: null,
+    createdAt: format(addDays(today, -60), "yyyy-MM-dd HH:mm:ss"),
+  };
+  const p3_t2v1 = {
+    id: uuidv4(),
+    talkId: talk2v1.id,
+    vendorId: vendor1.id,
+    content: "提交整改报告并附技术方案",
+    deadline: format(addDays(today, -55), "yyyy-MM-dd"),
+    status: "按期完成",
+    actualCompletionDate: format(addDays(today, -56), "yyyy-MM-dd"),
+    createdAt: format(addDays(today, -60), "yyyy-MM-dd HH:mm:ss"),
+  };
+  state.promises.push(p1_t2v1, p2_t2v1, p3_t2v1);
+
+  addEvidenceAndVerification(p1_t2v1, addDays(today, -60), addDays(today, -59), true, "功能已下线，附版本发布记录");
+  addEvidenceAndVerification(p3_t2v1, addDays(today, -57), addDays(today, -56), false, "两次提交后通过", [
+    { submissionDate: addDays(today, -58), rejectDate: addDays(today, -57), rejectReason: "技术方案深度不足，缺少跳转拦截的具体代码实现说明" },
+  ]);
 
   state.escalations.push({
     id: uuidv4(),
     vendorId: vendor1.id,
-    promiseId: state.promises.find(
-      (p) => p.content === "开展全量代码自查，清理隐藏跳转逻辑",
-    ).id,
+    promiseId: p2_t2v1.id,
     talkId: talk2v1.id,
     type: "再次约谈",
     triggeredAt: format(addDays(today, -49), "yyyy-MM-dd HH:mm:ss"),
@@ -177,38 +186,39 @@ function initSampleData() {
   };
   state.talks.push(talk3v1);
 
-  state.promises.push(
-    {
-      id: uuidv4(),
-      talkId: talk3v1.id,
-      vendorId: vendor1.id,
-      content: "7日内完成全部代码自查并提交自查报告",
-      deadline: format(addDays(today, 3), "yyyy-MM-dd"),
-      status: "整改中",
-      actualCompletionDate: null,
-      createdAt: format(addDays(today, -30), "yyyy-MM-dd HH:mm:ss"),
-    },
-    {
-      id: uuidv4(),
-      talkId: talk3v1.id,
-      vendorId: vendor1.id,
-      content: "引入第三方安全公司进行代码审计",
-      deadline: format(addDays(today, 15), "yyyy-MM-dd"),
-      status: "待整改",
-      actualCompletionDate: null,
-      createdAt: format(addDays(today, -30), "yyyy-MM-dd HH:mm:ss"),
-    },
-    {
-      id: uuidv4(),
-      talkId: talk3v1.id,
-      vendorId: vendor1.id,
-      content: "建立用户投诉快速响应通道（24小时内响应）",
-      deadline: format(addDays(today, 0), "yyyy-MM-dd"),
-      status: "整改中",
-      actualCompletionDate: null,
-      createdAt: format(addDays(today, -30), "yyyy-MM-dd HH:mm:ss"),
-    },
-  );
+  const p1_t3v1 = {
+    id: uuidv4(),
+    talkId: talk3v1.id,
+    vendorId: vendor1.id,
+    content: "7日内完成全部代码自查并提交自查报告",
+    deadline: format(addDays(today, 3), "yyyy-MM-dd"),
+    status: "待核验",
+    actualCompletionDate: null,
+    createdAt: format(addDays(today, -30), "yyyy-MM-dd HH:mm:ss"),
+  };
+  const p2_t3v1 = {
+    id: uuidv4(),
+    talkId: talk3v1.id,
+    vendorId: vendor1.id,
+    content: "引入第三方安全公司进行代码审计",
+    deadline: format(addDays(today, 15), "yyyy-MM-dd"),
+    status: "待整改",
+    actualCompletionDate: null,
+    createdAt: format(addDays(today, -30), "yyyy-MM-dd HH:mm:ss"),
+  };
+  const p3_t3v1 = {
+    id: uuidv4(),
+    talkId: talk3v1.id,
+    vendorId: vendor1.id,
+    content: "建立用户投诉快速响应通道（24小时内响应）",
+    deadline: format(addDays(today, 0), "yyyy-MM-dd"),
+    status: "整改中",
+    actualCompletionDate: null,
+    createdAt: format(addDays(today, -30), "yyyy-MM-dd HH:mm:ss"),
+  };
+  state.promises.push(p1_t3v1, p2_t3v1, p3_t3v1);
+
+  addPendingEvidence(p1_t3v1, addDays(today, -1));
 
   const talk1v2 = {
     id: uuidv4(),
@@ -221,28 +231,30 @@ function initSampleData() {
   };
   state.talks.push(talk1v2);
 
-  state.promises.push(
-    {
-      id: uuidv4(),
-      talkId: talk1v2.id,
-      vendorId: vendor2.id,
-      content: "调整弹窗展示频率，每小时不超过1次",
-      deadline: format(addDays(today, -87), "yyyy-MM-dd"),
-      status: "按期完成",
-      actualCompletionDate: format(addDays(today, -88), "yyyy-MM-dd"),
-      createdAt: format(addDays(today, -90), "yyyy-MM-dd HH:mm:ss"),
-    },
-    {
-      id: uuidv4(),
-      talkId: talk1v2.id,
-      vendorId: vendor2.id,
-      content: "取消未成年人诱导消费弹窗",
-      deadline: format(addDays(today, -85), "yyyy-MM-dd"),
-      status: "按期完成",
-      actualCompletionDate: format(addDays(today, -86), "yyyy-MM-dd"),
-      createdAt: format(addDays(today, -90), "yyyy-MM-dd HH:mm:ss"),
-    },
-  );
+  const p1_t1v2 = {
+    id: uuidv4(),
+    talkId: talk1v2.id,
+    vendorId: vendor2.id,
+    content: "调整弹窗展示频率，每小时不超过1次",
+    deadline: format(addDays(today, -87), "yyyy-MM-dd"),
+    status: "按期完成",
+    actualCompletionDate: format(addDays(today, -88), "yyyy-MM-dd"),
+    createdAt: format(addDays(today, -90), "yyyy-MM-dd HH:mm:ss"),
+  };
+  const p2_t1v2 = {
+    id: uuidv4(),
+    talkId: talk1v2.id,
+    vendorId: vendor2.id,
+    content: "取消未成年人诱导消费弹窗",
+    deadline: format(addDays(today, -85), "yyyy-MM-dd"),
+    status: "按期完成",
+    actualCompletionDate: format(addDays(today, -86), "yyyy-MM-dd"),
+    createdAt: format(addDays(today, -90), "yyyy-MM-dd HH:mm:ss"),
+  };
+  state.promises.push(p1_t1v2, p2_t1v2);
+
+  addEvidenceAndVerification(p1_t1v2, addDays(today, -89), addDays(today, -88), true, "附版本更新日志和截图对比");
+  addEvidenceAndVerification(p2_t1v2, addDays(today, -87), addDays(today, -86), true, "未成年人模式验证通过");
 
   const talk2v2 = {
     id: uuidv4(),
@@ -255,35 +267,34 @@ function initSampleData() {
   };
   state.talks.push(talk2v2);
 
-  state.promises.push(
-    {
-      id: uuidv4(),
-      talkId: talk2v2.id,
-      vendorId: vendor2.id,
-      content: "移除启动页强制跳转逻辑",
-      deadline: format(addDays(today, -43), "yyyy-MM-dd"),
-      status: "按期完成",
-      actualCompletionDate: format(addDays(today, -44), "yyyy-MM-dd"),
-      createdAt: format(addDays(today, -45), "yyyy-MM-dd HH:mm:ss"),
-    },
-    {
-      id: uuidv4(),
-      talkId: talk2v2.id,
-      vendorId: vendor2.id,
-      content: "审查所有SDK合作方，清理违规跳转SDK",
-      deadline: format(addDays(today, -35), "yyyy-MM-dd"),
-      status: "逾期未完成",
-      actualCompletionDate: null,
-      createdAt: format(addDays(today, -45), "yyyy-MM-dd HH:mm:ss"),
-    },
-  );
+  const p1_t2v2 = {
+    id: uuidv4(),
+    talkId: talk2v2.id,
+    vendorId: vendor2.id,
+    content: "移除启动页强制跳转逻辑",
+    deadline: format(addDays(today, -43), "yyyy-MM-dd"),
+    status: "按期完成",
+    actualCompletionDate: format(addDays(today, -44), "yyyy-MM-dd"),
+    createdAt: format(addDays(today, -45), "yyyy-MM-dd HH:mm:ss"),
+  };
+  const p2_t2v2 = {
+    id: uuidv4(),
+    talkId: talk2v2.id,
+    vendorId: vendor2.id,
+    content: "审查所有SDK合作方，清理违规跳转SDK",
+    deadline: format(addDays(today, -35), "yyyy-MM-dd"),
+    status: "逾期未完成",
+    actualCompletionDate: null,
+    createdAt: format(addDays(today, -45), "yyyy-MM-dd HH:mm:ss"),
+  };
+  state.promises.push(p1_t2v2, p2_t2v2);
+
+  addEvidenceAndVerification(p1_t2v2, addDays(today, -45), addDays(today, -44), true, "启动页逻辑已修改，附代码diff和测试报告");
 
   state.escalations.push({
     id: uuidv4(),
     vendorId: vendor2.id,
-    promiseId: state.promises.find(
-      (p) => p.content === "审查所有SDK合作方，清理违规跳转SDK",
-    ).id,
+    promiseId: p2_t2v2.id,
     talkId: talk2v2.id,
     type: "通报批评",
     triggeredAt: format(addDays(today, -34), "yyyy-MM-dd HH:mm:ss"),
@@ -302,28 +313,32 @@ function initSampleData() {
   };
   state.talks.push(talk1v3);
 
-  state.promises.push(
-    {
-      id: uuidv4(),
-      talkId: talk1v3.id,
-      vendorId: vendor3.id,
-      content: "减少弹窗密度，每篇文章弹窗不超过1个",
-      deadline: format(addDays(today, -67), "yyyy-MM-dd"),
-      status: "按期完成",
-      actualCompletionDate: format(addDays(today, -68), "yyyy-MM-dd"),
-      createdAt: format(addDays(today, -70), "yyyy-MM-dd HH:mm:ss"),
-    },
-    {
-      id: uuidv4(),
-      talkId: talk1v3.id,
-      vendorId: vendor3.id,
-      content: "优化关闭按钮，确保易于点击",
-      deadline: format(addDays(today, -65), "yyyy-MM-dd"),
-      status: "按期完成",
-      actualCompletionDate: format(addDays(today, -66), "yyyy-MM-dd"),
-      createdAt: format(addDays(today, -70), "yyyy-MM-dd HH:mm:ss"),
-    },
-  );
+  const p1_t1v3 = {
+    id: uuidv4(),
+    talkId: talk1v3.id,
+    vendorId: vendor3.id,
+    content: "减少弹窗密度，每篇文章弹窗不超过1个",
+    deadline: format(addDays(today, -67), "yyyy-MM-dd"),
+    status: "按期完成",
+    actualCompletionDate: format(addDays(today, -68), "yyyy-MM-dd"),
+    createdAt: format(addDays(today, -70), "yyyy-MM-dd HH:mm:ss"),
+  };
+  const p2_t1v3 = {
+    id: uuidv4(),
+    talkId: talk1v3.id,
+    vendorId: vendor3.id,
+    content: "优化关闭按钮，确保易于点击",
+    deadline: format(addDays(today, -65), "yyyy-MM-dd"),
+    status: "按期完成",
+    actualCompletionDate: format(addDays(today, -66), "yyyy-MM-dd"),
+    createdAt: format(addDays(today, -70), "yyyy-MM-dd HH:mm:ss"),
+  };
+  state.promises.push(p1_t1v3, p2_t1v3);
+
+  addEvidenceAndVerification(p1_t1v3, addDays(today, -69), addDays(today, -68), true, "附抽样检测报告，弹窗密度符合要求");
+  addEvidenceAndVerification(p2_t1v3, addDays(today, -67), addDays(today, -66), false, "关闭按钮尺寸偏小被驳回，重新调整后通过", [
+    { submissionDate: addDays(today, -68), rejectDate: addDays(today, -67), rejectReason: "关闭按钮尺寸仅24x24px，未达到40x40px的最低标准，附合规规范第3.2条" },
+  ]);
 
   const talk2v3 = {
     id: uuidv4(),
@@ -336,35 +351,32 @@ function initSampleData() {
   };
   state.talks.push(talk2v3);
 
-  state.promises.push(
-    {
-      id: uuidv4(),
-      talkId: talk2v3.id,
-      vendorId: vendor3.id,
-      content: "立即开展全面复查，3日内提交复查报告",
-      deadline: format(addDays(today, -17), "yyyy-MM-dd"),
-      status: "逾期未完成",
-      actualCompletionDate: null,
-      createdAt: format(addDays(today, -20), "yyyy-MM-dd HH:mm:ss"),
-    },
-    {
-      id: uuidv4(),
-      talkId: talk2v3.id,
-      vendorId: vendor3.id,
-      content: "建立总编辑内容责任制，弹窗内容需总编辑签字",
-      deadline: format(addDays(today, 10), "yyyy-MM-dd"),
-      status: "待整改",
-      actualCompletionDate: null,
-      createdAt: format(addDays(today, -20), "yyyy-MM-dd HH:mm:ss"),
-    },
-  );
+  const p1_t2v3 = {
+    id: uuidv4(),
+    talkId: talk2v3.id,
+    vendorId: vendor3.id,
+    content: "立即开展全面复查，3日内提交复查报告",
+    deadline: format(addDays(today, -17), "yyyy-MM-dd"),
+    status: "逾期未完成",
+    actualCompletionDate: null,
+    createdAt: format(addDays(today, -20), "yyyy-MM-dd HH:mm:ss"),
+  };
+  const p2_t2v3 = {
+    id: uuidv4(),
+    talkId: talk2v3.id,
+    vendorId: vendor3.id,
+    content: "建立总编辑内容责任制，弹窗内容需总编辑签字",
+    deadline: format(addDays(today, 10), "yyyy-MM-dd"),
+    status: "待整改",
+    actualCompletionDate: null,
+    createdAt: format(addDays(today, -20), "yyyy-MM-dd HH:mm:ss"),
+  };
+  state.promises.push(p1_t2v3, p2_t2v3);
 
   state.escalations.push({
     id: uuidv4(),
     vendorId: vendor3.id,
-    promiseId: state.promises.find(
-      (p) => p.content === "立即开展全面复查，3日内提交复查报告",
-    ).id,
+    promiseId: p1_t2v3.id,
     talkId: talk2v3.id,
     type: "再次约谈",
     triggeredAt: format(addDays(today, -16), "yyyy-MM-dd HH:mm:ss"),
@@ -383,30 +395,109 @@ function initSampleData() {
   };
   state.talks.push(talk1v4);
 
-  state.promises.push(
-    {
-      id: uuidv4(),
-      talkId: talk1v4.id,
-      vendorId: vendor4.id,
-      content: "重新设计弹窗UI，确保关闭按钮清晰可辨",
-      deadline: format(addDays(today, -22), "yyyy-MM-dd"),
-      status: "按期完成",
-      actualCompletionDate: format(addDays(today, -23), "yyyy-MM-dd"),
-      createdAt: format(addDays(today, -25), "yyyy-MM-dd HH:mm:ss"),
-    },
-    {
-      id: uuidv4(),
-      talkId: talk1v4.id,
-      vendorId: vendor4.id,
-      content: "优化弹窗触发逻辑，避免频繁打扰用户",
-      deadline: format(addDays(today, 8), "yyyy-MM-dd"),
-      status: "整改中",
-      actualCompletionDate: null,
-      createdAt: format(addDays(today, -25), "yyyy-MM-dd HH:mm:ss"),
-    },
-  );
+  const p1_t1v4 = {
+    id: uuidv4(),
+    talkId: talk1v4.id,
+    vendorId: vendor4.id,
+    content: "重新设计弹窗UI，确保关闭按钮清晰可辨",
+    deadline: format(addDays(today, -22), "yyyy-MM-dd"),
+    status: "按期完成",
+    actualCompletionDate: format(addDays(today, -23), "yyyy-MM-dd"),
+    createdAt: format(addDays(today, -25), "yyyy-MM-dd HH:mm:ss"),
+  };
+  const p2_t1v4 = {
+    id: uuidv4(),
+    talkId: talk1v4.id,
+    vendorId: vendor4.id,
+    content: "优化弹窗触发逻辑，避免频繁打扰用户",
+    deadline: format(addDays(today, 8), "yyyy-MM-dd"),
+    status: "整改中",
+    actualCompletionDate: null,
+    createdAt: format(addDays(today, -25), "yyyy-MM-dd HH:mm:ss"),
+  };
+  state.promises.push(p1_t1v4, p2_t1v4);
+
+  addEvidenceAndVerification(p1_t1v4, addDays(today, -24), addDays(today, -23), true, "附新版UI设计稿和前后对比截图，关闭按钮尺寸达标");
 
   return state;
+}
+
+function addEvidenceAndVerification(promise, submissionDate, verifyDate, firstTimePass, passRemark, rejectedBefore = []) {
+  let submissionCount = 1;
+
+  rejectedBefore.forEach((rej) => {
+    const submissionId = uuidv4();
+    state.evidenceSubmissions.push({
+      id: submissionId,
+      promiseId: promise.id,
+      vendorId: promise.vendorId,
+      submitter: "厂商联系人",
+      submitTime: format(rej.submissionDate, "yyyy-MM-dd HH:mm:ss"),
+      description: `关于"${promise.content}"的整改说明（第${submissionCount}次提交）`,
+      materials: [
+        { name: "整改说明文档.pdf", type: "pdf", size: 1024 * (submissionCount + 1) },
+        { name: "整改效果截图.png", type: "image", size: 2048 * (submissionCount + 1) },
+      ],
+      createdAt: format(rej.submissionDate, "yyyy-MM-dd HH:mm:ss"),
+    });
+
+    state.verificationRecords.push({
+      id: uuidv4(),
+      promiseId: promise.id,
+      evidenceSubmissionId: submissionId,
+      result: "不通过",
+      verifier: "监管员" + String.fromCharCode(64 + submissionCount),
+      verifyTime: format(rej.rejectDate, "yyyy-MM-dd HH:mm:ss"),
+      remark: rej.rejectReason,
+      createdAt: format(rej.rejectDate, "yyyy-MM-dd HH:mm:ss"),
+    });
+
+    submissionCount++;
+  });
+
+  const finalSubmissionId = uuidv4();
+  state.evidenceSubmissions.push({
+    id: finalSubmissionId,
+    promiseId: promise.id,
+    vendorId: promise.vendorId,
+    submitter: "厂商联系人",
+    submitTime: format(submissionDate, "yyyy-MM-dd HH:mm:ss"),
+    description: `关于"${promise.content}"的整改说明（第${submissionCount}次提交）`,
+    materials: [
+      { name: "整改说明文档.pdf", type: "pdf", size: 1024 * (submissionCount + 2) },
+      { name: "整改效果截图.png", type: "image", size: 2048 * (submissionCount + 2) },
+      { name: firstTimePass ? "自查报告.pdf" : "补充说明材料.pdf", type: "pdf", size: 4096 },
+    ],
+    createdAt: format(submissionDate, "yyyy-MM-dd HH:mm:ss"),
+  });
+
+  state.verificationRecords.push({
+    id: uuidv4(),
+    promiseId: promise.id,
+    evidenceSubmissionId: finalSubmissionId,
+    result: "通过",
+    verifier: "监管员A",
+    verifyTime: format(verifyDate, "yyyy-MM-dd HH:mm:ss"),
+    remark: passRemark,
+    createdAt: format(verifyDate, "yyyy-MM-dd HH:mm:ss"),
+  });
+}
+
+function addPendingEvidence(promise, submissionDate) {
+  const submissionId = uuidv4();
+  state.evidenceSubmissions.push({
+    id: submissionId,
+    promiseId: promise.id,
+    vendorId: promise.vendorId,
+    submitter: "厂商联系人",
+    submitTime: format(submissionDate, "yyyy-MM-dd HH:mm:ss"),
+    description: `关于"${promise.content}"的整改说明（首次提交，待核验）`,
+    materials: [
+      { name: "整改自查报告.pdf", type: "pdf", size: 8192 },
+      { name: "代码扫描结果.xlsx", type: "xlsx", size: 4096 },
+    ],
+    createdAt: format(submissionDate, "yyyy-MM-dd HH:mm:ss"),
+  });
 }
 
 function isPromiseOverdue(promise) {
@@ -421,6 +512,32 @@ function isPromiseOverdue(promise) {
   const deadlineStart = startOfDay(deadlineDate);
 
   return isBefore(deadlineStart, todayStart);
+}
+
+function getFirstTimePassRate(promisesFiltered = null) {
+  const targetPromises = promisesFiltered || state.promises;
+  const verifiedPromises = targetPromises.filter((p) => {
+    const records = state.verificationRecords.filter((r) => r.promiseId === p.id);
+    return records.length > 0 && records.some((r) => r.result === "通过");
+  });
+
+  if (verifiedPromises.length === 0) return { rate: 0, total: 0, firstPass: 0 };
+
+  let firstPassCount = 0;
+  verifiedPromises.forEach((p) => {
+    const records = state.verificationRecords
+      .filter((r) => r.promiseId === p.id)
+      .sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+    if (records.length > 0 && records[0].result === "通过") {
+      firstPassCount++;
+    }
+  });
+
+  return {
+    rate: Number(((firstPassCount / verifiedPromises.length) * 100).toFixed(2)),
+    total: verifiedPromises.length,
+    firstPass: firstPassCount,
+  };
 }
 
 function autoCheckOverdue() {
@@ -439,7 +556,7 @@ function autoCheckOverdue() {
 
   state.promises.forEach((promise) => {
     if (
-      (promise.status === "待整改" || promise.status === "整改中") &&
+      (promise.status === "待整改" || promise.status === "整改中" || promise.status === "待核验") &&
       promise.deadline
     ) {
       const deadlineDate = parseISO(promise.deadline);
@@ -510,5 +627,6 @@ module.exports = {
   ESCALATION_TYPES,
   autoCheckOverdue,
   isPromiseOverdue,
+  getFirstTimePassRate,
   uuidv4,
 };
