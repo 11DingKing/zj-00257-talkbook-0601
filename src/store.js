@@ -12,6 +12,8 @@ const {
 const TALK_REASONS = ["弹窗诱导", "强制跳转", "整改不到位"];
 const PROMISE_STATUS = ["待整改", "整改中", "待核验", "按期完成", "逾期未完成"];
 const ESCALATION_TYPES = ["再次约谈", "通报批评"];
+const TALK_DRAFT_STATUS = ["草稿", "已确认", "已取消"];
+const NOTICE_STATUS = ["待通报", "已通报", "已取消"];
 
 const state = {
   vendors: [],
@@ -20,6 +22,8 @@ const state = {
   escalations: [],
   evidenceSubmissions: [],
   verificationRecords: [],
+  talkDrafts: [],
+  noticeQueue: [],
 };
 
 function initSampleData() {
@@ -110,11 +114,34 @@ function initSampleData() {
   };
   state.promises.push(p1_t1v1, p2_t1v1, p3_t1v1);
 
-  addEvidenceAndVerification(p1_t1v1, addDays(today, -119), addDays(today, -118), true, "一次性通过");
-  addEvidenceAndVerification(p2_t1v1, addDays(today, -113), addDays(today, -112), false, "初次缺少审核流程图，补充后通过", [
-    { submissionDate: addDays(today, -115), rejectDate: addDays(today, -114), rejectReason: "缺少弹窗审核流程图文档，审核标准描述不清晰" },
-  ]);
-  addEvidenceAndVerification(p3_t1v1, addDays(today, -107), addDays(today, -106), true, "培训材料和签到记录齐全");
+  addEvidenceAndVerification(
+    p1_t1v1,
+    addDays(today, -119),
+    addDays(today, -118),
+    true,
+    "一次性通过",
+  );
+  addEvidenceAndVerification(
+    p2_t1v1,
+    addDays(today, -113),
+    addDays(today, -112),
+    false,
+    "初次缺少审核流程图，补充后通过",
+    [
+      {
+        submissionDate: addDays(today, -115),
+        rejectDate: addDays(today, -114),
+        rejectReason: "缺少弹窗审核流程图文档，审核标准描述不清晰",
+      },
+    ],
+  );
+  addEvidenceAndVerification(
+    p3_t1v1,
+    addDays(today, -107),
+    addDays(today, -106),
+    true,
+    "培训材料和签到记录齐全",
+  );
 
   const talk2v1 = {
     id: uuidv4(),
@@ -159,12 +186,43 @@ function initSampleData() {
   };
   state.promises.push(p1_t2v1, p2_t2v1, p3_t2v1);
 
-  addEvidenceAndVerification(p1_t2v1, addDays(today, -60), addDays(today, -59), true, "功能已下线，附版本发布记录");
-  addEvidenceAndVerification(p3_t2v1, addDays(today, -57), addDays(today, -56), false, "两次提交后通过", [
-    { submissionDate: addDays(today, -58), rejectDate: addDays(today, -57), rejectReason: "技术方案深度不足，缺少跳转拦截的具体代码实现说明" },
-  ]);
+  addEvidenceAndVerification(
+    p1_t2v1,
+    addDays(today, -60),
+    addDays(today, -59),
+    true,
+    "功能已下线，附版本发布记录",
+  );
+  addEvidenceAndVerification(
+    p3_t2v1,
+    addDays(today, -57),
+    addDays(today, -56),
+    false,
+    "两次提交后通过",
+    [
+      {
+        submissionDate: addDays(today, -58),
+        rejectDate: addDays(today, -57),
+        rejectReason: "技术方案深度不足，缺少跳转拦截的具体代码实现说明",
+      },
+    ],
+  );
 
-  state.escalations.push({
+  const talkDraft1 = {
+    id: uuidv4(),
+    vendorId: vendor1.id,
+    reason: "整改不到位",
+    participants: ["监管处长E", "监管员B", "张伟", "CTO F"],
+    talkTime: format(addDays(today, -30), "yyyy-MM-dd HH:mm:ss"),
+    remark: "前次约谈承诺逾期未完成，升级再次约谈",
+    sourceEscalationId: null,
+    linkedPromiseIds: [p2_t2v1.id],
+    status: "已确认",
+    createdAt: format(addDays(today, -49), "yyyy-MM-dd HH:mm:ss"),
+  };
+  state.talkDrafts.push(talkDraft1);
+
+  const escalation1 = {
     id: uuidv4(),
     vendorId: vendor1.id,
     promiseId: p2_t2v1.id,
@@ -172,8 +230,12 @@ function initSampleData() {
     type: "再次约谈",
     triggeredAt: format(addDays(today, -49), "yyyy-MM-dd HH:mm:ss"),
     remark: '承诺"开展全量代码自查，清理隐藏跳转逻辑"逾期未完成，触发再次约谈',
-    handled: false,
-  });
+    handled: true,
+    generatedTalkDraftId: talkDraft1.id,
+    generatedNoticeId: null,
+  };
+  state.escalations.push(escalation1);
+  talkDraft1.sourceEscalationId = escalation1.id;
 
   const talk3v1 = {
     id: uuidv4(),
@@ -182,6 +244,8 @@ function initSampleData() {
     participants: ["监管处长E", "监管员B", "张伟", "CTO F"],
     talkTime: format(addDays(today, -30), "yyyy-MM-dd HH:mm:ss"),
     remark: "前次约谈承诺逾期未完成，升级再次约谈",
+    sourceEscalationId: escalation1.id,
+    linkedPromiseIds: [p2_t2v1.id],
     createdAt: format(addDays(today, -30), "yyyy-MM-dd HH:mm:ss"),
   };
   state.talks.push(talk3v1);
@@ -253,8 +317,20 @@ function initSampleData() {
   };
   state.promises.push(p1_t1v2, p2_t1v2);
 
-  addEvidenceAndVerification(p1_t1v2, addDays(today, -89), addDays(today, -88), true, "附版本更新日志和截图对比");
-  addEvidenceAndVerification(p2_t1v2, addDays(today, -87), addDays(today, -86), true, "未成年人模式验证通过");
+  addEvidenceAndVerification(
+    p1_t1v2,
+    addDays(today, -89),
+    addDays(today, -88),
+    true,
+    "附版本更新日志和截图对比",
+  );
+  addEvidenceAndVerification(
+    p2_t1v2,
+    addDays(today, -87),
+    addDays(today, -86),
+    true,
+    "未成年人模式验证通过",
+  );
 
   const talk2v2 = {
     id: uuidv4(),
@@ -289,9 +365,30 @@ function initSampleData() {
   };
   state.promises.push(p1_t2v2, p2_t2v2);
 
-  addEvidenceAndVerification(p1_t2v2, addDays(today, -45), addDays(today, -44), true, "启动页逻辑已修改，附代码diff和测试报告");
+  addEvidenceAndVerification(
+    p1_t2v2,
+    addDays(today, -45),
+    addDays(today, -44),
+    true,
+    "启动页逻辑已修改，附代码diff和测试报告",
+  );
 
-  state.escalations.push({
+  const notice1 = {
+    id: uuidv4(),
+    vendorId: vendor2.id,
+    promiseId: p2_t2v2.id,
+    talkId: talk2v2.id,
+    title: "关于对畅游网络科技有限公司予以通报批评的通知",
+    content:
+      '该公司在约谈中作出的"审查所有SDK合作方，清理违规跳转SDK"承诺逾期未完成，经再次约谈后仍未整改到位，现予以通报批评。',
+    status: "已通报",
+    sourceEscalationId: null,
+    createdAt: format(addDays(today, -34), "yyyy-MM-dd HH:mm:ss"),
+    noticedAt: format(addDays(today, -33), "yyyy-MM-dd HH:mm:ss"),
+  };
+  state.noticeQueue.push(notice1);
+
+  const escalation2 = {
     id: uuidv4(),
     vendorId: vendor2.id,
     promiseId: p2_t2v2.id,
@@ -300,7 +397,11 @@ function initSampleData() {
     triggeredAt: format(addDays(today, -34), "yyyy-MM-dd HH:mm:ss"),
     remark: '承诺"审查所有SDK合作方，清理违规跳转SDK"逾期未完成，予以通报批评',
     handled: true,
-  });
+    generatedTalkDraftId: null,
+    generatedNoticeId: notice1.id,
+  };
+  state.escalations.push(escalation2);
+  notice1.sourceEscalationId = escalation2.id;
 
   const talk1v3 = {
     id: uuidv4(),
@@ -335,10 +436,28 @@ function initSampleData() {
   };
   state.promises.push(p1_t1v3, p2_t1v3);
 
-  addEvidenceAndVerification(p1_t1v3, addDays(today, -69), addDays(today, -68), true, "附抽样检测报告，弹窗密度符合要求");
-  addEvidenceAndVerification(p2_t1v3, addDays(today, -67), addDays(today, -66), false, "关闭按钮尺寸偏小被驳回，重新调整后通过", [
-    { submissionDate: addDays(today, -68), rejectDate: addDays(today, -67), rejectReason: "关闭按钮尺寸仅24x24px，未达到40x40px的最低标准，附合规规范第3.2条" },
-  ]);
+  addEvidenceAndVerification(
+    p1_t1v3,
+    addDays(today, -69),
+    addDays(today, -68),
+    true,
+    "附抽样检测报告，弹窗密度符合要求",
+  );
+  addEvidenceAndVerification(
+    p2_t1v3,
+    addDays(today, -67),
+    addDays(today, -66),
+    false,
+    "关闭按钮尺寸偏小被驳回，重新调整后通过",
+    [
+      {
+        submissionDate: addDays(today, -68),
+        rejectDate: addDays(today, -67),
+        rejectReason:
+          "关闭按钮尺寸仅24x24px，未达到40x40px的最低标准，附合规规范第3.2条",
+      },
+    ],
+  );
 
   const talk2v3 = {
     id: uuidv4(),
@@ -373,7 +492,21 @@ function initSampleData() {
   };
   state.promises.push(p1_t2v3, p2_t2v3);
 
-  state.escalations.push({
+  const talkDraft2 = {
+    id: uuidv4(),
+    vendorId: vendor3.id,
+    reason: "整改不到位",
+    participants: ["监管员A", "监管员B", "王磊"],
+    talkTime: format(addDays(today, -10), "yyyy-MM-dd HH:mm:ss"),
+    remark: '承诺"立即开展全面复查，3日内提交复查报告"逾期未完成，触发再次约谈',
+    sourceEscalationId: null,
+    linkedPromiseIds: [p1_t2v3.id],
+    status: "草稿",
+    createdAt: format(addDays(today, -16), "yyyy-MM-dd HH:mm:ss"),
+  };
+  state.talkDrafts.push(talkDraft2);
+
+  const escalation3 = {
     id: uuidv4(),
     vendorId: vendor3.id,
     promiseId: p1_t2v3.id,
@@ -382,7 +515,11 @@ function initSampleData() {
     triggeredAt: format(addDays(today, -16), "yyyy-MM-dd HH:mm:ss"),
     remark: '承诺"立即开展全面复查，3日内提交复查报告"逾期未完成，触发再次约谈',
     handled: false,
-  });
+    generatedTalkDraftId: talkDraft2.id,
+    generatedNoticeId: null,
+  };
+  state.escalations.push(escalation3);
+  talkDraft2.sourceEscalationId = escalation3.id;
 
   const talk1v4 = {
     id: uuidv4(),
@@ -417,12 +554,25 @@ function initSampleData() {
   };
   state.promises.push(p1_t1v4, p2_t1v4);
 
-  addEvidenceAndVerification(p1_t1v4, addDays(today, -24), addDays(today, -23), true, "附新版UI设计稿和前后对比截图，关闭按钮尺寸达标");
+  addEvidenceAndVerification(
+    p1_t1v4,
+    addDays(today, -24),
+    addDays(today, -23),
+    true,
+    "附新版UI设计稿和前后对比截图，关闭按钮尺寸达标",
+  );
 
   return state;
 }
 
-function addEvidenceAndVerification(promise, submissionDate, verifyDate, firstTimePass, passRemark, rejectedBefore = []) {
+function addEvidenceAndVerification(
+  promise,
+  submissionDate,
+  verifyDate,
+  firstTimePass,
+  passRemark,
+  rejectedBefore = [],
+) {
   let submissionCount = 1;
 
   rejectedBefore.forEach((rej) => {
@@ -435,8 +585,16 @@ function addEvidenceAndVerification(promise, submissionDate, verifyDate, firstTi
       submitTime: format(rej.submissionDate, "yyyy-MM-dd HH:mm:ss"),
       description: `关于"${promise.content}"的整改说明（第${submissionCount}次提交）`,
       materials: [
-        { name: "整改说明文档.pdf", type: "pdf", size: 1024 * (submissionCount + 1) },
-        { name: "整改效果截图.png", type: "image", size: 2048 * (submissionCount + 1) },
+        {
+          name: "整改说明文档.pdf",
+          type: "pdf",
+          size: 1024 * (submissionCount + 1),
+        },
+        {
+          name: "整改效果截图.png",
+          type: "image",
+          size: 2048 * (submissionCount + 1),
+        },
       ],
       createdAt: format(rej.submissionDate, "yyyy-MM-dd HH:mm:ss"),
     });
@@ -464,9 +622,21 @@ function addEvidenceAndVerification(promise, submissionDate, verifyDate, firstTi
     submitTime: format(submissionDate, "yyyy-MM-dd HH:mm:ss"),
     description: `关于"${promise.content}"的整改说明（第${submissionCount}次提交）`,
     materials: [
-      { name: "整改说明文档.pdf", type: "pdf", size: 1024 * (submissionCount + 2) },
-      { name: "整改效果截图.png", type: "image", size: 2048 * (submissionCount + 2) },
-      { name: firstTimePass ? "自查报告.pdf" : "补充说明材料.pdf", type: "pdf", size: 4096 },
+      {
+        name: "整改说明文档.pdf",
+        type: "pdf",
+        size: 1024 * (submissionCount + 2),
+      },
+      {
+        name: "整改效果截图.png",
+        type: "image",
+        size: 2048 * (submissionCount + 2),
+      },
+      {
+        name: firstTimePass ? "自查报告.pdf" : "补充说明材料.pdf",
+        type: "pdf",
+        size: 4096,
+      },
     ],
     createdAt: format(submissionDate, "yyyy-MM-dd HH:mm:ss"),
   });
@@ -517,7 +687,9 @@ function isPromiseOverdue(promise) {
 function getFirstTimePassRate(promisesFiltered = null) {
   const targetPromises = promisesFiltered || state.promises;
   const verifiedPromises = targetPromises.filter((p) => {
-    const records = state.verificationRecords.filter((r) => r.promiseId === p.id);
+    const records = state.verificationRecords.filter(
+      (r) => r.promiseId === p.id,
+    );
     return records.length > 0 && records.some((r) => r.result === "通过");
   });
 
@@ -556,7 +728,9 @@ function autoCheckOverdue() {
 
   state.promises.forEach((promise) => {
     if (
-      (promise.status === "待整改" || promise.status === "整改中" || promise.status === "待核验") &&
+      (promise.status === "待整改" ||
+        promise.status === "整改中" ||
+        promise.status === "待核验") &&
       promise.deadline
     ) {
       const deadlineDate = parseISO(promise.deadline);
@@ -603,9 +777,53 @@ function autoCheckOverdue() {
         triggeredAt: format(new Date(), "yyyy-MM-dd HH:mm:ss"),
         remark: `约谈中 ${talkInfo.overduePromises.length} 条承诺逾期未完成（${overdueContents}），${vendorExistingEscalations >= 1 ? "该厂商已有逾期升级处置记录，升级为通报批评" : "触发再次约谈"}`,
         handled: false,
+        generatedTalkDraftId: null,
+        generatedNoticeId: null,
       };
       state.escalations.push(escalation);
       newEscalations.push(escalation);
+
+      const overduePromiseIds = talkInfo.overduePromises.map((p) => p.id);
+
+      if (escalationType === "再次约谈") {
+        const originalTalk = state.talks.find((t) => t.id === talkId);
+        const talkDraft = {
+          id: uuidv4(),
+          vendorId: vendorId,
+          reason: "整改不到位",
+          participants: originalTalk
+            ? [...new Set([...originalTalk.participants, "监管处长"])].filter(
+                Boolean,
+              )
+            : ["监管员", "厂商联系人"],
+          talkTime: format(addDays(new Date(), 7), "yyyy-MM-dd HH:mm:ss"),
+          remark: `前次约谈 ${talkInfo.overduePromises.length} 条承诺逾期未完成，升级再次约谈：${overdueContents}`,
+          sourceEscalationId: escalation.id,
+          linkedPromiseIds: overduePromiseIds,
+          status: "草稿",
+          createdAt: format(new Date(), "yyyy-MM-dd HH:mm:ss"),
+        };
+        state.talkDrafts.push(talkDraft);
+        escalation.generatedTalkDraftId = talkDraft.id;
+      } else if (escalationType === "通报批评") {
+        const vendor = state.vendors.find((v) => v.id === vendorId);
+        const originalTalk = state.talks.find((t) => t.id === talkId);
+        const notice = {
+          id: uuidv4(),
+          vendorId: vendorId,
+          promiseId: firstOverduePromise.id,
+          talkId: talkId,
+          title: `关于对${vendor ? vendor.name : "该厂商"}予以通报批评的通知`,
+          content: `${vendor ? vendor.name : "该厂商"}在约谈中作出的${overdueContents}承诺逾期未完成，经多次约谈督促后仍未整改到位，现予以通报批评。`,
+          status: "待通报",
+          sourceEscalationId: escalation.id,
+          linkedPromiseIds: overduePromiseIds,
+          createdAt: format(new Date(), "yyyy-MM-dd HH:mm:ss"),
+          noticedAt: null,
+        };
+        state.noticeQueue.push(notice);
+        escalation.generatedNoticeId = notice.id;
+      }
 
       vendorPendingEscalationCount[vendorId] =
         (vendorPendingEscalationCount[vendorId] || 0) + 1;
@@ -617,6 +835,172 @@ function autoCheckOverdue() {
   return newEscalations;
 }
 
+function createEscalationActions(escalation, overduePromises) {
+  const overduePromiseIds = overduePromises.map((p) => p.id);
+  const overdueContents = overduePromises
+    .map((p) => `"${p.content}"`)
+    .join("、");
+  const vendorId = escalation.vendorId;
+  const talkId = escalation.talkId;
+
+  if (escalation.type === "再次约谈") {
+    const originalTalk = state.talks.find((t) => t.id === talkId);
+    const talkDraft = {
+      id: uuidv4(),
+      vendorId: vendorId,
+      reason: "整改不到位",
+      participants: originalTalk
+        ? [...new Set([...originalTalk.participants, "监管处长"])].filter(
+            Boolean,
+          )
+        : ["监管员", "厂商联系人"],
+      talkTime: format(addDays(new Date(), 7), "yyyy-MM-dd HH:mm:ss"),
+      remark: `前次约谈 ${overduePromises.length} 条承诺逾期未完成，升级再次约谈：${overdueContents}`,
+      sourceEscalationId: escalation.id,
+      linkedPromiseIds: overduePromiseIds,
+      status: "草稿",
+      createdAt: format(new Date(), "yyyy-MM-dd HH:mm:ss"),
+    };
+    state.talkDrafts.push(talkDraft);
+    escalation.generatedTalkDraftId = talkDraft.id;
+    return { talkDraft };
+  } else if (escalation.type === "通报批评") {
+    const vendor = state.vendors.find((v) => v.id === vendorId);
+    const notice = {
+      id: uuidv4(),
+      vendorId: vendorId,
+      promiseId: escalation.promiseId,
+      talkId: talkId,
+      title: `关于对${vendor ? vendor.name : "该厂商"}予以通报批评的通知`,
+      content: `${vendor ? vendor.name : "该厂商"}在约谈中作出的${overdueContents}承诺逾期未完成，经多次约谈督促后仍未整改到位，现予以通报批评。`,
+      status: "待通报",
+      sourceEscalationId: escalation.id,
+      linkedPromiseIds: overduePromiseIds,
+      createdAt: format(new Date(), "yyyy-MM-dd HH:mm:ss"),
+      noticedAt: null,
+    };
+    state.noticeQueue.push(notice);
+    escalation.generatedNoticeId = notice.id;
+    return { notice };
+  }
+  return {};
+}
+
+function getSecondaryEscalationStats() {
+  let secondaryEscalationCount = 0;
+  const vendorEscalationChains = {};
+
+  state.escalations.forEach((escalation) => {
+    const vendorId = escalation.vendorId;
+    if (!vendorEscalationChains[vendorId]) {
+      vendorEscalationChains[vendorId] = [];
+    }
+    vendorEscalationChains[vendorId].push(escalation);
+  });
+
+  Object.keys(vendorEscalationChains).forEach((vendorId) => {
+    const escalations = vendorEscalationChains[vendorId].sort(
+      (a, b) => new Date(a.triggeredAt) - new Date(b.triggeredAt),
+    );
+
+    for (let i = 1; i < escalations.length; i++) {
+      const currentEsc = escalations[i];
+      const prevEsc = escalations[i - 1];
+
+      const currentOverduePromise = state.promises.find(
+        (p) => p.id === currentEsc.promiseId,
+      );
+
+      if (currentOverduePromise && currentOverduePromise.talkId) {
+        const talkOfCurrentPromise = state.talks.find(
+          (t) => t.id === currentOverduePromise.talkId,
+        );
+        if (
+          talkOfCurrentPromise &&
+          talkOfCurrentPromise.sourceEscalationId === prevEsc.id
+        ) {
+          secondaryEscalationCount++;
+        }
+      }
+    }
+  });
+
+  const details = [];
+  Object.keys(vendorEscalationChains).forEach((vendorId) => {
+    const vendor = state.vendors.find((v) => v.id === vendorId);
+    const escalations = vendorEscalationChains[vendorId].sort(
+      (a, b) => new Date(a.triggeredAt) - new Date(b.triggeredAt),
+    );
+
+    for (let i = 1; i < escalations.length; i++) {
+      const currentEsc = escalations[i];
+      const prevEsc = escalations[i - 1];
+      const currentOverduePromise = state.promises.find(
+        (p) => p.id === currentEsc.promiseId,
+      );
+
+      if (currentOverduePromise && currentOverduePromise.talkId) {
+        const talkOfCurrentPromise = state.talks.find(
+          (t) => t.id === currentOverduePromise.talkId,
+        );
+        if (
+          talkOfCurrentPromise &&
+          talkOfCurrentPromise.sourceEscalationId === prevEsc.id
+        ) {
+          const promise = state.promises.find(
+            (p) => p.id === currentEsc.promiseId,
+          );
+          details.push({
+            vendorId,
+            vendorName: vendor ? vendor.name : "",
+            firstEscalationId: prevEsc.id,
+            firstEscalationType: prevEsc.type,
+            firstEscalationAt: prevEsc.triggeredAt,
+            secondEscalationId: currentEsc.id,
+            secondEscalationType: currentEsc.type,
+            secondEscalationAt: currentEsc.triggeredAt,
+            promiseContent: promise ? promise.content : "",
+          });
+        }
+      }
+    }
+  });
+
+  return {
+    count: secondaryEscalationCount,
+    details,
+  };
+}
+
+function getTalkChain(talkId) {
+  const chain = [];
+  let currentTalkId = talkId;
+  const visited = new Set();
+
+  while (currentTalkId && !visited.has(currentTalkId)) {
+    visited.add(currentTalkId);
+    const talk = state.talks.find((t) => t.id === currentTalkId);
+    if (!talk) break;
+
+    const escalation = state.escalations.find(
+      (e) => e.id === talk.sourceEscalationId,
+    );
+    const prevTalkId = escalation ? escalation.talkId : null;
+
+    chain.unshift({
+      talk,
+      escalation,
+      linkedPromises: state.promises.filter((p) =>
+        (talk.linkedPromiseIds || []).includes(p.id),
+      ),
+    });
+
+    currentTalkId = prevTalkId;
+  }
+
+  return chain;
+}
+
 initSampleData();
 autoCheckOverdue();
 
@@ -625,8 +1009,13 @@ module.exports = {
   TALK_REASONS,
   PROMISE_STATUS,
   ESCALATION_TYPES,
+  TALK_DRAFT_STATUS,
+  NOTICE_STATUS,
   autoCheckOverdue,
   isPromiseOverdue,
   getFirstTimePassRate,
+  createEscalationActions,
+  getSecondaryEscalationStats,
+  getTalkChain,
   uuidv4,
 };

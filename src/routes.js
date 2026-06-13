@@ -5,8 +5,13 @@ const {
   TALK_REASONS,
   PROMISE_STATUS,
   ESCALATION_TYPES,
+  TALK_DRAFT_STATUS,
+  NOTICE_STATUS,
   autoCheckOverdue,
   getFirstTimePassRate,
+  createEscalationActions,
+  getSecondaryEscalationStats,
+  getTalkChain,
   uuidv4,
 } = require("./store");
 
@@ -134,17 +139,23 @@ router.get("/vendors/:id/history", (req, res) => {
     .filter((t) => t.vendorId === req.params.id)
     .sort((a, b) => new Date(b.talkTime) - new Date(a.talkTime))
     .map((talk) => {
-      const talkPromises = state.promises.filter((p) => p.talkId === talk.id).map((p) => ({
-        ...p,
-        evidenceCount: state.evidenceSubmissions.filter((e) => e.promiseId === p.id).length,
-        verificationCount: state.verificationRecords.filter((v) => v.promiseId === p.id).length,
-        latestVerification: (() => {
-          const records = state.verificationRecords
-            .filter((v) => v.promiseId === p.id)
-            .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-          return records.length > 0 ? records[0] : null;
-        })(),
-      }));
+      const talkPromises = state.promises
+        .filter((p) => p.talkId === talk.id)
+        .map((p) => ({
+          ...p,
+          evidenceCount: state.evidenceSubmissions.filter(
+            (e) => e.promiseId === p.id,
+          ).length,
+          verificationCount: state.verificationRecords.filter(
+            (v) => v.promiseId === p.id,
+          ).length,
+          latestVerification: (() => {
+            const records = state.verificationRecords
+              .filter((v) => v.promiseId === p.id)
+              .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+            return records.length > 0 ? records[0] : null;
+          })(),
+        }));
       const talkEscalations = state.escalations.filter(
         (e) => e.talkId === talk.id,
       );
@@ -154,7 +165,9 @@ router.get("/vendors/:id/history", (req, res) => {
       const overdue = talkPromises.filter(
         (p) => p.status === "逾期未完成",
       ).length;
-      const pendingVerify = talkPromises.filter((p) => p.status === "待核验").length;
+      const pendingVerify = talkPromises.filter(
+        (p) => p.status === "待核验",
+      ).length;
       return {
         ...talk,
         promises: talkPromises,
@@ -195,7 +208,9 @@ router.get("/vendors/:id/history", (req, res) => {
         firstTimePassDetail: ftp,
         escalationCount: allEscalations.length,
         pendingEscalationCount: allEscalations.filter((e) => !e.handled).length,
-        pendingVerificationCount: allPromises.filter((p) => p.status === "待核验").length,
+        pendingVerificationCount: allPromises.filter(
+          (p) => p.status === "待核验",
+        ).length,
       },
       talks,
     },
@@ -222,36 +237,12 @@ router.get("/talks", (req, res) => {
       promiseCount: talkPromises.length,
       overduePromiseCount: talkPromises.filter((p) => p.status === "逾期未完成")
         .length,
-      pendingVerifyCount: talkPromises.filter((p) => p.status === "待核验").length,
+      pendingVerifyCount: talkPromises.filter((p) => p.status === "待核验")
+        .length,
     };
   });
 
   res.json({ code: 0, data, total: data.length });
-});
-
-router.get("/talks/:id", (req, res) => {
-  const talk = state.talks.find((t) => t.id === req.params.id);
-  if (!talk) {
-    return res.status(404).json({ code: 1, message: "约谈记录不存在" });
-  }
-  const vendor = state.vendors.find((v) => v.id === talk.vendorId);
-  const talkPromises = state.promises.filter((p) => p.talkId === talk.id).map((p) => ({
-    ...p,
-    evidenceSubmissions: state.evidenceSubmissions.filter((e) => e.promiseId === p.id)
-      .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)),
-    verificationRecords: state.verificationRecords.filter((v) => v.promiseId === p.id)
-      .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)),
-  }));
-  const talkEscalations = state.escalations.filter((e) => e.talkId === talk.id);
-  res.json({
-    code: 0,
-    data: {
-      ...talk,
-      vendor,
-      promises: talkPromises,
-      escalations: talkEscalations,
-    },
-  });
 });
 
 router.post("/talks", (req, res) => {
@@ -340,7 +331,13 @@ router.get("/promises", (req, res) => {
   if (talkId) result = result.filter((p) => p.talkId === talkId);
   if (status) result = result.filter((p) => p.status === status);
   result.sort((a, b) => {
-    const order = { 待整改: 0, 整改中: 1, 待核验: 2, 逾期未完成: 3, 按期完成: 4 };
+    const order = {
+      待整改: 0,
+      整改中: 1,
+      待核验: 2,
+      逾期未完成: 3,
+      按期完成: 4,
+    };
     return (order[a.status] || 0) - (order[b.status] || 0);
   });
 
@@ -348,9 +345,16 @@ router.get("/promises", (req, res) => {
     const vendor = state.vendors.find((v) => v.id === p.vendorId);
     const talk = state.talks.find((t) => t.id === p.talkId);
     const escalation = state.escalations.find((e) => e.promiseId === p.id);
-    const evidenceList = state.evidenceSubmissions.filter((e) => e.promiseId === p.id);
-    const verificationList = state.verificationRecords.filter((v) => v.promiseId === p.id);
-    const latestVerification = verificationList.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))[0] || null;
+    const evidenceList = state.evidenceSubmissions.filter(
+      (e) => e.promiseId === p.id,
+    );
+    const verificationList = state.verificationRecords.filter(
+      (v) => v.promiseId === p.id,
+    );
+    const latestVerification =
+      verificationList.sort(
+        (a, b) => new Date(b.createdAt) - new Date(a.createdAt),
+      )[0] || null;
     return {
       ...p,
       vendorName: vendor ? vendor.name : "",
@@ -360,49 +364,16 @@ router.get("/promises", (req, res) => {
       escalationType: escalation ? escalation.type : null,
       evidenceCount: evidenceList.length,
       verificationCount: verificationList.length,
-      latestVerificationResult: latestVerification ? latestVerification.result : null,
-      latestVerificationRemark: latestVerification ? latestVerification.remark : null,
+      latestVerificationResult: latestVerification
+        ? latestVerification.result
+        : null,
+      latestVerificationRemark: latestVerification
+        ? latestVerification.remark
+        : null,
     };
   });
 
   res.json({ code: 0, data, total: data.length });
-});
-
-router.get("/promises/:id", (req, res) => {
-  const promise = state.promises.find((p) => p.id === req.params.id);
-  if (!promise) {
-    return res.status(404).json({ code: 1, message: "承诺记录不存在" });
-  }
-  const vendor = state.vendors.find((v) => v.id === promise.vendorId);
-  const talk = state.talks.find((t) => t.id === promise.talkId);
-  const evidenceSubmissions = state.evidenceSubmissions
-    .filter((e) => e.promiseId === promise.id)
-    .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-  const verificationRecords = state.verificationRecords
-    .filter((v) => v.promiseId === promise.id)
-    .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-  const escalation = state.escalations.find((e) => e.promiseId === promise.id);
-
-  const submissionWithVerification = evidenceSubmissions.map((sub) => ({
-    ...sub,
-    verification: verificationRecords.find((v) => v.evidenceSubmissionId === sub.id) || null,
-  }));
-
-  res.json({
-    code: 0,
-    data: {
-      ...promise,
-      vendorName: vendor ? vendor.name : "",
-      vendorIndustry: vendor ? vendor.industry : "",
-      talkReason: talk ? talk.reason : "",
-      talkTime: talk ? talk.talkTime : "",
-      talkRemark: talk ? talk.remark : "",
-      escalation: escalation || null,
-      evidenceSubmissions: submissionWithVerification,
-      verificationRecords,
-      timeline: buildPromiseTimeline(promise, evidenceSubmissions, verificationRecords, escalation),
-    },
-  });
 });
 
 function buildPromiseTimeline(promise, evidences, verifications, escalation) {
@@ -552,7 +523,8 @@ router.post("/promises/:id/verify", (req, res) => {
     result,
     verifier,
     verifyTime: format(new Date(), "yyyy-MM-dd HH:mm:ss"),
-    remark: remark || (result === "通过" ? "核验通过，整改符合要求" : "核验不通过"),
+    remark:
+      remark || (result === "通过" ? "核验通过，整改符合要求" : "核验不通过"),
     createdAt: format(new Date(), "yyyy-MM-dd HH:mm:ss"),
   };
   state.verificationRecords.push(verification);
@@ -563,7 +535,10 @@ router.post("/promises/:id/verify", (req, res) => {
     const todayStart = startOfDay(now);
     const deadlineStart = startOfDay(deadlineDate);
 
-    if (promise.status === "待核验" && (isBefore(deadlineStart, todayStart) || isNaN(deadlineDate.getTime()))) {
+    if (
+      promise.status === "待核验" &&
+      (isBefore(deadlineStart, todayStart) || isNaN(deadlineDate.getTime()))
+    ) {
     } else {
       promise.status = "按期完成";
       promise.actualCompletionDate = format(now, "yyyy-MM-dd");
@@ -628,16 +603,26 @@ router.put("/promises/:id/status", (req, res) => {
       const vendorExistingEscalations = state.escalations.filter(
         (e) => e.vendorId === promise.vendorId,
       ).length;
-      state.escalations.push({
+      const escalationType =
+        vendorExistingEscalations >= 1 ? "通报批评" : "再次约谈";
+      const escalation = {
         id: uuidv4(),
         vendorId: promise.vendorId,
         promiseId: promise.id,
         talkId: promise.talkId,
-        type: vendorExistingEscalations >= 1 ? "通报批评" : "再次约谈",
+        type: escalationType,
         triggeredAt: format(new Date(), "yyyy-MM-dd HH:mm:ss"),
         remark: `承诺"${promise.content}"逾期未完成，${vendorExistingEscalations >= 1 ? "该厂商已有逾期升级处置记录，升级为通报批评" : "触发再次约谈"}`,
         handled: false,
-      });
+        generatedTalkDraftId: null,
+        generatedNoticeId: null,
+      };
+      state.escalations.push(escalation);
+
+      const overduePromises = state.promises.filter(
+        (p) => p.talkId === promise.talkId && p.status === "逾期未完成",
+      );
+      createEscalationActions(escalation, overduePromises);
     }
   }
 
@@ -662,11 +647,17 @@ router.get("/escalations", (req, res) => {
     const vendor = state.vendors.find((v) => v.id === e.vendorId);
     const promise = state.promises.find((p) => p.id === e.promiseId);
     const talk = state.talks.find((t) => t.id === e.talkId);
+    const talkDraft = state.talkDrafts.find(
+      (d) => d.id === e.generatedTalkDraftId,
+    );
+    const notice = state.noticeQueue.find((n) => n.id === e.generatedNoticeId);
     return {
       ...e,
       vendorName: vendor ? vendor.name : "",
       promiseContent: promise ? promise.content : "",
       talkReason: talk ? talk.reason : "",
+      talkDraft: talkDraft || null,
+      notice: notice || null,
     };
   });
 
@@ -770,7 +761,9 @@ router.get("/stats/by-vendor", (req, res) => {
       overallFirstTimePassRate: overallFtp.rate,
       overallFirstTimePassDetail: overallFtp,
       totalEscalations: state.escalations.length,
-      totalPendingVerification: state.promises.filter((p) => p.status === "待核验").length,
+      totalPendingVerification: state.promises.filter(
+        (p) => p.status === "待核验",
+      ).length,
     },
   });
 });
@@ -840,7 +833,9 @@ router.get("/stats/by-reason", (req, res) => {
           : 0,
       overallFirstTimePassRate: overallFtp.rate,
       overallFirstTimePassDetail: overallFtp,
-      totalPendingVerification: state.promises.filter((p) => p.status === "待核验").length,
+      totalPendingVerification: state.promises.filter(
+        (p) => p.status === "待核验",
+      ).length,
     },
   });
 });
@@ -899,7 +894,10 @@ router.get("/stats/overview", (req, res) => {
   ).length;
 
   const approachingDeadline = state.promises
-    .filter((p) => p.status === "待整改" || p.status === "整改中" || p.status === "待核验")
+    .filter(
+      (p) =>
+        p.status === "待整改" || p.status === "整改中" || p.status === "待核验",
+    )
     .filter((p) => {
       const deadline = new Date(p.deadline);
       const diffDays = Math.ceil((deadline - today) / (1000 * 60 * 60 * 24));
@@ -909,7 +907,9 @@ router.get("/stats/overview", (req, res) => {
       const vendor = state.vendors.find((v) => v.id === p.vendorId);
       const deadline = new Date(p.deadline);
       const daysLeft = Math.ceil((deadline - today) / (1000 * 60 * 60 * 24));
-      const evidenceCount = state.evidenceSubmissions.filter((e) => e.promiseId === p.id).length;
+      const evidenceCount = state.evidenceSubmissions.filter(
+        (e) => e.promiseId === p.id,
+      ).length;
       return {
         id: p.id,
         content: p.content,
@@ -961,6 +961,484 @@ router.get("/stats/overview", (req, res) => {
       totalEvidenceSubmissions: state.evidenceSubmissions.length,
       totalVerifications: state.verificationRecords.length,
       pendingVerificationCount: statusBreakdown["待核验"] || 0,
+      secondaryEscalationStats: getSecondaryEscalationStats(),
+    },
+  });
+});
+
+router.get("/meta/talk-draft-statuses", (req, res) => {
+  res.json({ code: 0, data: TALK_DRAFT_STATUS });
+});
+
+router.get("/meta/notice-statuses", (req, res) => {
+  res.json({ code: 0, data: NOTICE_STATUS });
+});
+
+router.get("/talk-drafts", (req, res) => {
+  const { vendorId, status, sourceEscalationId } = req.query;
+  let result = [...state.talkDrafts];
+  if (vendorId) result = result.filter((d) => d.vendorId === vendorId);
+  if (status) result = result.filter((d) => d.status === status);
+  if (sourceEscalationId)
+    result = result.filter((d) => d.sourceEscalationId === sourceEscalationId);
+  result.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+
+  const data = result.map((d) => {
+    const vendor = state.vendors.find((v) => v.id === d.vendorId);
+    const escalation = state.escalations.find(
+      (e) => e.id === d.sourceEscalationId,
+    );
+    const linkedPromises = state.promises.filter((p) =>
+      (d.linkedPromiseIds || []).includes(p.id),
+    );
+    return {
+      ...d,
+      vendorName: vendor ? vendor.name : "",
+      escalation: escalation || null,
+      linkedPromises: linkedPromises.map((p) => ({
+        id: p.id,
+        content: p.content,
+        deadline: p.deadline,
+        status: p.status,
+      })),
+    };
+  });
+
+  res.json({ code: 0, data, total: data.length });
+});
+
+router.get("/talk-drafts/:id", (req, res) => {
+  const draft = state.talkDrafts.find((d) => d.id === req.params.id);
+  if (!draft) {
+    return res.status(404).json({ code: 1, message: "约谈草稿不存在" });
+  }
+  const vendor = state.vendors.find((v) => v.id === draft.vendorId);
+  const escalation = state.escalations.find(
+    (e) => e.id === draft.sourceEscalationId,
+  );
+  const linkedPromises = state.promises.filter((p) =>
+    (draft.linkedPromiseIds || []).includes(p.id),
+  );
+  res.json({
+    code: 0,
+    data: {
+      ...draft,
+      vendor,
+      escalation: escalation || null,
+      linkedPromises,
+    },
+  });
+});
+
+router.put("/talk-drafts/:id", (req, res) => {
+  const draft = state.talkDrafts.find((d) => d.id === req.params.id);
+  if (!draft) {
+    return res.status(404).json({ code: 1, message: "约谈草稿不存在" });
+  }
+  const { reason, participants, talkTime, remark, status } = req.body;
+
+  if (status !== undefined && !TALK_DRAFT_STATUS.includes(status)) {
+    return res.status(400).json({
+      code: 1,
+      message: `状态必须是：${TALK_DRAFT_STATUS.join("、")}`,
+    });
+  }
+  if (reason !== undefined && !TALK_REASONS.includes(reason)) {
+    return res
+      .status(400)
+      .json({ code: 1, message: `约谈事由必须是：${TALK_REASONS.join("、")}` });
+  }
+
+  if (reason !== undefined) draft.reason = reason;
+  if (participants !== undefined) draft.participants = participants;
+  if (talkTime !== undefined) draft.talkTime = talkTime;
+  if (remark !== undefined) draft.remark = remark;
+  if (status !== undefined) draft.status = status;
+
+  res.json({ code: 0, data: draft });
+});
+
+router.post("/talk-drafts/:id/confirm", (req, res) => {
+  const draft = state.talkDrafts.find((d) => d.id === req.params.id);
+  if (!draft) {
+    return res.status(404).json({ code: 1, message: "约谈草稿不存在" });
+  }
+  if (draft.status === "已取消") {
+    return res.status(400).json({ code: 1, message: "该草稿已取消，无法确认" });
+  }
+
+  const { promises } = req.body;
+  if (!promises || !Array.isArray(promises) || promises.length === 0) {
+    return res.status(400).json({ code: 1, message: "整改承诺不能为空" });
+  }
+  for (let i = 0; i < promises.length; i++) {
+    const p = promises[i];
+    if (!p.content || !p.deadline) {
+      return res
+        .status(400)
+        .json({ code: 1, message: `第${i + 1}条整改承诺内容和完成期限必填` });
+    }
+  }
+
+  const vendor = state.vendors.find((v) => v.id === draft.vendorId);
+  if (!vendor) {
+    return res.status(404).json({ code: 1, message: "厂商不存在" });
+  }
+
+  const talkId = uuidv4();
+  const talk = {
+    id: talkId,
+    vendorId: draft.vendorId,
+    reason: draft.reason,
+    participants: draft.participants,
+    talkTime: draft.talkTime,
+    remark: draft.remark,
+    sourceEscalationId: draft.sourceEscalationId,
+    linkedPromiseIds: draft.linkedPromiseIds || [],
+    createdAt: format(new Date(), "yyyy-MM-dd HH:mm:ss"),
+  };
+  state.talks.push(talk);
+
+  const createdPromises = promises.map((p) => ({
+    id: uuidv4(),
+    talkId,
+    vendorId: draft.vendorId,
+    content: p.content,
+    deadline: p.deadline,
+    status: "待整改",
+    actualCompletionDate: null,
+    createdAt: format(new Date(), "yyyy-MM-dd HH:mm:ss"),
+  }));
+  state.promises.push(...createdPromises);
+
+  draft.status = "已确认";
+  draft.confirmedTalkId = talkId;
+
+  const escalation = state.escalations.find(
+    (e) => e.id === draft.sourceEscalationId,
+  );
+  if (escalation) {
+    escalation.handled = true;
+    escalation.handledAt = format(new Date(), "yyyy-MM-dd HH:mm:ss");
+  }
+
+  autoCheckOverdue();
+
+  res.status(201).json({
+    code: 0,
+    data: {
+      talk,
+      promises: createdPromises,
+      draft,
+    },
+  });
+});
+
+router.put("/talk-drafts/:id/cancel", (req, res) => {
+  const draft = state.talkDrafts.find((d) => d.id === req.params.id);
+  if (!draft) {
+    return res.status(404).json({ code: 1, message: "约谈草稿不存在" });
+  }
+  if (draft.status === "已确认") {
+    return res.status(400).json({ code: 1, message: "该草稿已确认，无法取消" });
+  }
+  draft.status = "已取消";
+  res.json({ code: 0, data: draft });
+});
+
+router.get("/notice-queue", (req, res) => {
+  const { vendorId, status, sourceEscalationId } = req.query;
+  let result = [...state.noticeQueue];
+  if (vendorId) result = result.filter((n) => n.vendorId === vendorId);
+  if (status) result = result.filter((n) => n.status === status);
+  if (sourceEscalationId)
+    result = result.filter((n) => n.sourceEscalationId === sourceEscalationId);
+  result.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+
+  const data = result.map((n) => {
+    const vendor = state.vendors.find((v) => v.id === n.vendorId);
+    const promise = state.promises.find((p) => p.id === n.promiseId);
+    const talk = state.talks.find((t) => t.id === n.talkId);
+    const escalation = state.escalations.find(
+      (e) => e.id === n.sourceEscalationId,
+    );
+    const linkedPromises = state.promises.filter((p) =>
+      (n.linkedPromiseIds || []).includes(p.id),
+    );
+    return {
+      ...n,
+      vendorName: vendor ? vendor.name : "",
+      promiseContent: promise ? promise.content : "",
+      talkReason: talk ? talk.reason : "",
+      escalation: escalation || null,
+      linkedPromises: linkedPromises.map((p) => ({
+        id: p.id,
+        content: p.content,
+        deadline: p.deadline,
+        status: p.status,
+      })),
+    };
+  });
+
+  res.json({ code: 0, data, total: data.length });
+});
+
+router.get("/notice-queue/:id", (req, res) => {
+  const notice = state.noticeQueue.find((n) => n.id === req.params.id);
+  if (!notice) {
+    return res.status(404).json({ code: 1, message: "通报记录不存在" });
+  }
+  const vendor = state.vendors.find((v) => v.id === notice.vendorId);
+  const promise = state.promises.find((p) => p.id === notice.promiseId);
+  const talk = state.talks.find((t) => t.id === notice.talkId);
+  const escalation = state.escalations.find(
+    (e) => e.id === notice.sourceEscalationId,
+  );
+  const linkedPromises = state.promises.filter((p) =>
+    (notice.linkedPromiseIds || []).includes(p.id),
+  );
+  res.json({
+    code: 0,
+    data: {
+      ...notice,
+      vendor,
+      promise,
+      talk,
+      escalation: escalation || null,
+      linkedPromises,
+    },
+  });
+});
+
+router.put("/notice-queue/:id", (req, res) => {
+  const notice = state.noticeQueue.find((n) => n.id === req.params.id);
+  if (!notice) {
+    return res.status(404).json({ code: 1, message: "通报记录不存在" });
+  }
+  const { title, content, status } = req.body;
+
+  if (status !== undefined && !NOTICE_STATUS.includes(status)) {
+    return res
+      .status(400)
+      .json({ code: 1, message: `状态必须是：${NOTICE_STATUS.join("、")}` });
+  }
+
+  if (title !== undefined) notice.title = title;
+  if (content !== undefined) notice.content = content;
+  if (status !== undefined) {
+    notice.status = status;
+    if (status === "已通报" && !notice.noticedAt) {
+      notice.noticedAt = format(new Date(), "yyyy-MM-dd HH:mm:ss");
+    }
+  }
+
+  res.json({ code: 0, data: notice });
+});
+
+router.post("/notice-queue/:id/issue", (req, res) => {
+  const notice = state.noticeQueue.find((n) => n.id === req.params.id);
+  if (!notice) {
+    return res.status(404).json({ code: 1, message: "通报记录不存在" });
+  }
+  if (notice.status === "已取消") {
+    return res.status(400).json({ code: 1, message: "该通报已取消，无法发布" });
+  }
+  if (notice.status === "已通报") {
+    return res.status(400).json({ code: 1, message: "该通报已发布" });
+  }
+
+  notice.status = "已通报";
+  notice.noticedAt = format(new Date(), "yyyy-MM-dd HH:mm:ss");
+
+  const escalation = state.escalations.find(
+    (e) => e.id === notice.sourceEscalationId,
+  );
+  if (escalation) {
+    escalation.handled = true;
+    escalation.handledAt = format(new Date(), "yyyy-MM-dd HH:mm:ss");
+  }
+
+  res.json({ code: 0, data: notice });
+});
+
+router.put("/notice-queue/:id/cancel", (req, res) => {
+  const notice = state.noticeQueue.find((n) => n.id === req.params.id);
+  if (!notice) {
+    return res.status(404).json({ code: 1, message: "通报记录不存在" });
+  }
+  if (notice.status === "已通报") {
+    return res.status(400).json({ code: 1, message: "该通报已发布，无法取消" });
+  }
+  notice.status = "已取消";
+  res.json({ code: 0, data: notice });
+});
+
+router.get("/talks/:id/chain", (req, res) => {
+  const talk = state.talks.find((t) => t.id === req.params.id);
+  if (!talk) {
+    return res.status(404).json({ code: 1, message: "约谈记录不存在" });
+  }
+
+  const chain = getTalkChain(req.params.id);
+  const chainWithDetails = chain.map((item) => {
+    const vendor = state.vendors.find((v) => v.id === item.talk.vendorId);
+    const prevTalk = item.escalation
+      ? state.talks.find((t) => t.id === item.escalation.talkId)
+      : null;
+    return {
+      talk: {
+        ...item.talk,
+        vendorName: vendor ? vendor.name : "",
+      },
+      escalation: item.escalation || null,
+      linkedPromises: item.linkedPromises,
+      prevTalk: prevTalk
+        ? {
+            id: prevTalk.id,
+            reason: prevTalk.reason,
+            talkTime: prevTalk.talkTime,
+          }
+        : null,
+    };
+  });
+
+  res.json({ code: 0, data: chainWithDetails });
+});
+
+router.get("/stats/secondary-escalation", (req, res) => {
+  const stats = getSecondaryEscalationStats();
+  res.json({ code: 0, data: stats });
+});
+
+router.get("/promises/:id/talk-chain", (req, res) => {
+  const promise = state.promises.find((p) => p.id === req.params.id);
+  if (!promise) {
+    return res.status(404).json({ code: 1, message: "承诺记录不存在" });
+  }
+
+  const chain = getTalkChain(promise.talkId);
+  const chainWithDetails = chain.map((item) => {
+    const vendor = state.vendors.find((v) => v.id === item.talk.vendorId);
+    return {
+      talk: {
+        ...item.talk,
+        vendorName: vendor ? vendor.name : "",
+      },
+      escalation: item.escalation || null,
+      linkedPromises: item.linkedPromises,
+    };
+  });
+
+  const relatedEscalations = state.escalations
+    .filter(
+      (e) =>
+        e.promiseId === promise.id ||
+        (e.linkedPromiseIds && e.linkedPromiseIds.includes(promise.id)),
+    )
+    .sort((a, b) => new Date(a.triggeredAt) - new Date(b.triggeredAt));
+
+  res.json({
+    code: 0,
+    data: {
+      promise,
+      talkChain: chainWithDetails,
+      relatedEscalations,
+    },
+  });
+});
+
+router.get("/talks/:id", (req, res) => {
+  const talk = state.talks.find((t) => t.id === req.params.id);
+  if (!talk) {
+    return res.status(404).json({ code: 1, message: "约谈记录不存在" });
+  }
+  const vendor = state.vendors.find((v) => v.id === talk.vendorId);
+  const talkPromises = state.promises
+    .filter((p) => p.talkId === talk.id)
+    .map((p) => ({
+      ...p,
+      evidenceSubmissions: state.evidenceSubmissions
+        .filter((e) => e.promiseId === p.id)
+        .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)),
+      verificationRecords: state.verificationRecords
+        .filter((v) => v.promiseId === p.id)
+        .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)),
+    }));
+  const talkEscalations = state.escalations.filter((e) => e.talkId === talk.id);
+  const sourceEscalation = talk.sourceEscalationId
+    ? state.escalations.find((e) => e.id === talk.sourceEscalationId)
+    : null;
+  const linkedPromises = talk.linkedPromiseIds
+    ? state.promises.filter((p) => talk.linkedPromiseIds.includes(p.id))
+    : [];
+  const talkChain = getTalkChain(talk.id);
+  res.json({
+    code: 0,
+    data: {
+      ...talk,
+      vendor,
+      promises: talkPromises,
+      escalations: talkEscalations,
+      sourceEscalation: sourceEscalation || null,
+      linkedPromises,
+      talkChain,
+    },
+  });
+});
+
+router.get("/promises/:id", (req, res) => {
+  const promise = state.promises.find((p) => p.id === req.params.id);
+  if (!promise) {
+    return res.status(404).json({ code: 1, message: "承诺记录不存在" });
+  }
+  const vendor = state.vendors.find((v) => v.id === promise.vendorId);
+  const talk = state.talks.find((t) => t.id === promise.talkId);
+  const evidenceSubmissions = state.evidenceSubmissions
+    .filter((e) => e.promiseId === promise.id)
+    .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+  const verificationRecords = state.verificationRecords
+    .filter((v) => v.promiseId === promise.id)
+    .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+  const escalation = state.escalations.find((e) => e.promiseId === promise.id);
+  const talkChain = getTalkChain(promise.talkId);
+  const linkedInTalks = state.talks
+    .filter(
+      (t) => t.linkedPromiseIds && t.linkedPromiseIds.includes(promise.id),
+    )
+    .map((t) => ({
+      id: t.id,
+      reason: t.reason,
+      talkTime: t.talkTime,
+      sourceEscalationId: t.sourceEscalationId,
+    }));
+
+  const submissionWithVerification = evidenceSubmissions.map((sub) => ({
+    ...sub,
+    verification:
+      verificationRecords.find((v) => v.evidenceSubmissionId === sub.id) ||
+      null,
+  }));
+
+  res.json({
+    code: 0,
+    data: {
+      ...promise,
+      vendorName: vendor ? vendor.name : "",
+      vendorIndustry: vendor ? vendor.industry : "",
+      talkReason: talk ? talk.reason : "",
+      talkTime: talk ? talk.talkTime : "",
+      talkRemark: talk ? talk.remark : "",
+      escalation: escalation || null,
+      evidenceSubmissions: submissionWithVerification,
+      verificationRecords,
+      timeline: buildPromiseTimeline(
+        promise,
+        evidenceSubmissions,
+        verificationRecords,
+        escalation,
+      ),
+      talkChain,
+      linkedInTalks,
     },
   });
 });
